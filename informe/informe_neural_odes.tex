@@ -1,0 +1,138 @@
+\documentclass[12pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish]{babel}
+\usepackage{amsmath, amssymb}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{geometry}
+\geometry{margin=1in}
+
+\begin{document}
+
+\begin{center}
+\textbf{Análisis Numérico} | Universidad Nacional de Colombia\\
+Prof. Carlos Manuel Orrego Franco\\
+Fecha: 28 de May de 2026\\
+Integrantes: Camilo Jaramillo González, Daniel David Serrano Hernández\\
+Dataset: COVID-19 JHU (nuevos casos diarios)
+\end{center}
+
+\section{Descripción del dataset}
+
+Dataset: COVID-19 JHU (nuevos casos diarios)\\
+Trayectorias: 178\\
+Pasos de tiempo: 400\\
+Dimensiones: 1\\
+Variables: Nuevos casos (norm.)\\
+Rango: $[-1.098, 7.928]$
+
+Originalmente, el conjunto de datos de la Universidad Johns Hopkins (JHU) contenía reportes de casos acumulados de COVID-19 para 289 países y regiones a lo largo de 1143 fechas. Para adecuar esta información a la implementación de integradores numéricos continuos, se realizó un preprocesamiento exhaustivo. En primer lugar, se calculó la diferencia diaria para trabajar con nuevos casos en lugar de casos acumulados, evitando así problemas de rigidez al integrar curvas monótonamente crecientes. Posteriormente, se aplicó un filtro para conservar únicamente aquellos países que presentaron un pico epidémico claro (más de 500 casos diarios), reduciendo el conjunto a 178 trayectorias. Al explorar el conjunto, se comprobó la ausencia total de valores faltantes (NaNs). Para garantizar que el modelo neuronal aprendiera la dinámica subyacente y no el ruido de los retrasos en los reportes, la señal fue suavizada utilizando una ventana móvil de 7 días. Los datos de contagio se normalizaron mediante StandardScaler, y se seleccionaron los primeros 400 días de mayor variabilidad. El vector de tiempo también fue normalizado en el intervalo $[0, 1]$ para garantizar la estabilidad numérica del integrador RK4. Finalmente, como se observa en la Figura~\ref{fig:exploracion}, las trayectorias resultantes evidencian múltiples olas de contagio de carácter no lineal. Los datos fueron transformados de un DataFrame bidimensional a un tensor tridimensional de la forma $(178, 400, 1)$ para su procesamiento por lotes en TensorFlow.
+
+\section{Hiperparámetros elegidos y justificación}
+
+\begin{itemize}
+\item \texttt{dim\_latente}: 16
+\item \texttt{n\_pasos\_ode}: 10
+\item \texttt{learning\_rate}: 0.001
+\item \texttt{n\_epochs}: 35
+\item \texttt{batch\_size}: 32
+\item \texttt{dim\_oculto\_f}: 64
+\item \texttt{dim\_oculto\_enc}: 32
+\item \texttt{dim\_oculto\_dec}: 48
+\end{itemize}
+
+\begin{itemize}
+\item \texttt{dim\_latente} (16): Se seleccionó un valor intermedio-alto para proporcionar al modelo la capacidad expresiva necesaria para capturar la compleja dinámica epidemiológica del COVID-19, evitando al mismo tiempo un exceso de parámetros que pudiera derivar en un sobreajuste.
+
+\item \texttt{n\_pasos\_ode} (10): Representa un equilibrio computacional. Permite un paso de integración $h$ lo suficientemente pequeño para minimizar el error de truncamiento del método de Runge-Kutta (RK4), sin saturar la memoria RAM.
+
+\item \texttt{learning\_rate} (0.001) y \texttt{n\_epochs} (35): Debido a la alta exigencia computacional de integrar EDOs dentro de un ciclo de entrenamiento (lo cual resultó en tiempos de ejecución prolongados de hasta una hora), se limitó el entrenamiento a 35 épocas. Para compensar esta restricción, se fijó una tasa de aprendizaje de 0.001, permitiendo que el optimizador Adam diera pasos lo suficientemente grandes para converger rápidamente sin inestabilizarse.
+
+\item \texttt{batch\_size} (32): Este tamaño de lote permite procesar simultáneamente una cantidad representativa de países para promediar y estabilizar el gradiente, respetando las limitaciones de memoria del hardware.
+
+\item \texttt{dim\_oculto\_f} (64): Se asignó una alta capacidad a la red neuronal que parametriza el campo vectorial debido a que los picos abruptos observados en el preprocesamiento requieren el modelamiento de derivadas continuas altamente no lineales.
+
+\item \texttt{dim\_oculto\_enc} (32): En la Latent ODE, este valor otorga a la red recurrente la capacidad suficiente para procesar la secuencia completa en orden inverso y resumir la información histórica de manera efectiva en la condición inicial latente $z_0$.
+
+\item \texttt{dim\_oculto\_dec} (48): Proporciona la flexibilidad necesaria para mapear de manera no lineal los valores del espacio latente multidimensional de regreso a la dimensión observada (casos diarios).
+\end{itemize}
+
+\section{Tabla de resultados RMSE}
+
+\begin{table}[H]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\caption{Resultados RMSE para los diferentes modelos.}
+\label{tab:rmse}
+\begin{tabular}{lcccccccc}
+\toprule
+\textbf{Modelo} & \textbf{30\% rec} & \textbf{30\% ext} & \textbf{60\% rec} & \textbf{60\% ext} & \textbf{100\% rec} & \textbf{100\% ext} & \textbf{Params} & \textbf{Tiempo} \\
+\midrule
+Método Clásico  & 0.0000 & 0.1142 & 0.0000 & 0.0866 & 0.0000 & nan  & 4     & 0.0s \\
+Neural ODE      & 0.5009 & 0.5020 & 0.4989 & 0.5058 & 0.5017 & nan  & 7,537   & 3253.9s \\
+Latent ODE      & 0.5768 & 0.5766 & 0.5745 & 0.5799 & 0.5767 & nan  & 11,633  & 4085.3s \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Figuras}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.8\textwidth]{figura1.png}
+\caption{Exploracion del dataset}
+\label{fig:exploracion}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.8\textwidth]{figura2.png}
+\caption{Comparacion de modelos (60\% obs.)}
+\label{fig:comparacion}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.8\textwidth]{figura3.png}
+\caption{Curvas de aprendizaje}
+\label{fig:aprendizaje}
+\end{figure}
+
+\section{Respuestas a las preguntas de análisis}
+
+\textbf{P1: ¿Con qué porcentaje de observaciones empieza a ganar la Neural ODE?}
+
+Como se evidencia en los resultados de la tabla, la Neural ODE no logró superar al método clásico en ningún porcentaje de observación. De hecho, su RMSE se mantiene constante alrededor de 0.50 en cualquier escenario (30\%, 60\% y 100\%), lo que demuestra empíricamente que el rendimiento no está limitado por la escasez de datos, sino por la naturaleza del modelo matemático frente a este dataset específico.
+
+Más allá de la alta capacidad expresiva de este método para tareas complejas, como la clasificación, es crucial evaluar la idoneidad del modelo según la naturaleza física del problema. La Neural ODE opera bajo el supuesto de que el sistema evoluciona de forma continua y regida por un campo vectorial parametrizado por $\theta$, el cual se comparte para todos los países. Aquí radica la limitación fundamental: las dinámicas epidemiológicas reales frente al COVID-19 dependieron de variables exógenas (cuarentenas, políticas de salud, vacunación) que variaron drásticamente entre naciones. Así, incluso si dos países presentan el mismo estado (casos) en un tiempo $t$, su evolución posterior puede ser radicalmente opuesta. Ante esta información aparentemente contradictoria, la Neural ODE se ve forzada a optimizar unos parámetros $\theta$ que trazan una curva de tendencia suavizada, incapaz de replicar los picos abruptos propios del fenómeno, pero matemáticamente óptima para minimizar el RMSE global. Por su parte, el método clásico, al utilizar memoria local secuencial e interpolar directamente entre las observaciones disponibles, sortea este obstáculo y logra aproximar de mejor manera las discontinuidades del fenómeno.
+
+\textbf{P2: ¿Por qué el encoder RNN corre en orden inverso al tiempo?}
+
+El papel fundamental del encoder en el modelo Latent ODE es inferir la condición inicial latente $z_0$ (en el tiempo $t_0$), a partir de la cual el integrador numérico resolverá la ecuación diferencial hacia adelante. Por su naturaleza secuencial, las redes neuronales recurrentes tienden a diluir la información de los primeros elementos procesados a medida que avanzan en secuencias largas. Si el encoder recorriera las observaciones hacia adelante, el estado oculto final retendría fuertemente la información del final de la pandemia, pero habría perdido precisión sobre el inicio. Al recorrer la secuencia en orden inverso, el último estado que la red asimila es precisamente el del instante inicial. Esto garantiza que la estimación de $z_0$ se base en un estado oculto donde la información de las primeras observaciones es la más ``reciente", permitiendo al modelo determinar con mayor precisión el punto de partida más probable para generar y reconstruir todos los estados subsecuentes.
+
+\textbf{P3: ¿Hubo algún resultado sorpresivo? ¿Por qué?}
+
+El resultado más sorpresivo fue el deficiente desempeño de la Latent ODE (representado por una línea de predicción casi plana). Al ser el modelo generativo más sofisticado, se esperaba una superioridad clara; sin embargo, obtuvo el error más alto. Como se exploró en el Notebook 07, estimar conjuntamente el estado inicial $z_0$ y la dinámica $f_\theta$ genera un paisaje de optimización complejo con múltiples mínimos locales. Esto ilustra un desafío teórico profundo: aunque el teorema de Picard-Lindelöf garantiza la unicidad de una trayectoria dada una condición inicial, no garantiza la unicidad del problema de estimación de parámetros.
+
+Ante la monumental tarea de reconstruir los abruptos picos epidemiológicos a partir de un único vector inicial $z_0$, el modelo ``colapsa". Dado que la función de pérdida (ELBO) penaliza tanto el error de reconstrucción como la divergencia KL, el optimizador encuentra una ruta ``perezosa" para minimizar la pérdida total: ignora el encoder (llevando la divergencia KL a cero) y decodifica un estado latente genérico, lo que se traduce en predecir la media histórica constante del dataset (la línea plana observada) para evitar penalizaciones mayores al intentar adivinar los picos exógenos.
+
+\textbf{P4: ¿En qué tipo de problema NO recomendarían una Neural ODE?}
+
+Como se ha evidenciado en este análisis, se desaconseja el uso de una Neural ODE en fenómenos que no operen como sistemas dinámicos autónomos. Es decir, en aquellos problemas donde el estado actual del sistema no es lo suficientemente informativo para determinar su evolución temporal debido a la fuerte intervención de variables exógenas. La pandemia de COVID-19 es un ejemplo paradigmático de esto: la aparición de nuevas variantes, las políticas gubernamentales (cuarentenas) y los factores socioculturales introdujeron modificaciones abruptas en la dinámica, algo que un modelo basado en integradores continuos no puede anticipar sin incorporar estas variables externas en su formulación.
+
+En segundo lugar, su uso resulta deficiente y conceptualmente erróneo en sistemas donde prime la aleatoriedad o el ruido severo (procesos estocásticos, como los mercados financieros a corto plazo). Las Neural ODEs, al fundamentarse en Ecuaciones Diferenciales Ordinarias, asumen un entorno determinista y suave. Intentar forzar a un integrador determinista (como Runge-Kutta) a aprender un comportamiento dominado por la varianza aleatoria o por saltos discretos lleva al modelo a colapsar, optando por trazar promedios inexpresivos (como la media histórica) para minimizar el error, perdiendo toda utilidad predictiva.
+
+\section{Conclusiones}
+
+\begin{itemize}
+\item El experimento demostró que la sofisticación matemática y el volumen de parámetros de un modelo de Deep Learning no garantizan un mejor desempeño predictivo si las premisas del método entran en conflicto con la naturaleza del fenómeno. Mientras que el método clásico (con apenas 4 parámetros) logró una reconstrucción exacta ($\text{RMSE} = 0.000$) mediante aproximaciones locales, los modelos Neural ODE ($7,537$ parámetros) y Latent ODE ($11,633$ parámetros) se vieron limitados a trazar curvas promediadas debido a su incapacidad inherente para asimilar shocks exógenos impredecibles, estabilizando su error en un rango cercano a $0.50$ independientemente de la densidad de observaciones (30\%, 60\% o 100\%).
+
+\item La implementación de integradores numéricos continuos en el bucle de optimización (backpropagation a través del resolvedor Runge-Kutta RK4) impone un cuello de botella computacional severo. Los tiempos de entrenamiento registrados de $3253.9$ segundos para la Neural ODE y $4085.3$ segundos para la Latent ODE exponen las limitaciones prácticas de estos métodos en entornos de cómputo, evidenciando que la modelación continua exige un compromiso entre la elegancia teórica y la viabilidad en tiempo de ejecución.
+
+\item Se concluye que las Neural ODEs no constituyen una solución universal para el análisis de series temporales. Su idoneidad matemática está estrictamente ligada a sistemas dinámicos autónomos o deterministas regidos por leyes físicas o biológicas estables e invariantes en el tiempo (como los ejemplos abordados en el curso). Para fenómenos biológicos de escala social a largo plazo, cruzados por decisiones políticas, mutaciones biológicas y comportamientos humanos discontinuos, las restricciones de suavidad de las ecuaciones diferenciales ordinarias actúan como una limitación, haciendo que los enfoques de interpolación local o modelos secuenciales discretos sigan siendo la alternativa numéricamente superior.
+\end{itemize}
+
+\end{document}
